@@ -100,6 +100,7 @@ class Client:
 
     def __init__(self,
                  session_name: str,
+                 config_name: str,
                  test_mode: bool = False,
                  phone_number: str = None,
                  phone_code: str or callable = None,
@@ -108,6 +109,7 @@ class Client:
                  last_name: str = None):
         self.session_name = session_name
         self.test_mode = test_mode
+        self.config_name = config_name
 
         self.phone_number = phone_number
         self.password = password
@@ -121,6 +123,7 @@ class Client:
 
         self.rnd_id = None
 
+        self.peers = []
         self.peers_by_id = {}
         self.peers_by_username = {}
 
@@ -369,8 +372,8 @@ class Client:
         parser.read("config.ini")
 
         self.config = Config(
-            api_id=parser.getint("pyrogram", "api_id"),
-            api_hash=parser.get("pyrogram", "api_hash")
+            api_id=parser.getint(self.config_name, "api_id"),
+            api_hash=parser.get(self.config_name, "api_hash")
         )
 
         if parser.has_section("proxy"):
@@ -384,7 +387,7 @@ class Client:
 
     def load_session(self, session_name):
         try:
-            with open("{}.session".format(session_name), encoding="utf-8") as f:
+            with open("./sessions/{}.session".format(session_name), encoding="utf-8") as f:
                 s = json.load(f)
         except FileNotFoundError:
             self.dc_id = 1
@@ -399,7 +402,7 @@ class Client:
         auth_key = base64.b64encode(self.auth_key).decode()
         auth_key = [auth_key[i: i + 43] for i in range(0, len(auth_key), 43)]
 
-        with open("{}.session".format(self.session_name), "w", encoding="utf-8") as f:
+        with open("./sessions/{}.session".format(self.session_name), "w", encoding="utf-8") as f:
             json.dump(
                 dict(
                     dc_id=self.dc_id,
@@ -412,7 +415,6 @@ class Client:
             )
 
     def get_dialogs(self):
-        peers = []
 
         def parse_dialogs(d) -> int:
             oldest_date = 1 << 32
@@ -440,7 +442,7 @@ class Client:
                     if is_this:
                         for entity in (d.users if peer_type == "user" else d.chats):  # type: User or Chat or Channel
                             if entity.id == peer_id:
-                                peers.append(
+                                self.peers.append(
                                     dict(
                                         id=peer_id,
                                         access_hash=getattr(entity, "access_hash", None),
@@ -449,6 +451,10 @@ class Client:
                                         last_name=getattr(entity, "last_name", None),
                                         title=getattr(entity, "title", None),
                                         username=getattr(entity, "username", None),
+                                        top_message=dialog.top_message,
+                                        unread_count=dialog.unread_count,
+                                        read_inbox_max_id=dialog.read_inbox_max_id,
+                                        read_outbox_max_id=dialog.read_outbox_max_id
                                     )
                                 )
 
@@ -471,7 +477,7 @@ class Client:
         )
 
         offset_date = parse_dialogs(dialogs)
-        log.info("Dialogs count: {}".format(len(peers)))
+        log.info("Dialogs count: {}".format(len(self.peers)))
 
         while len(dialogs.dialogs) == self.DIALOGS_AT_ONCE:
             dialogs = self.send(
@@ -482,9 +488,9 @@ class Client:
             )
 
             offset_date = parse_dialogs(dialogs)
-            log.info("Dialogs count: {}".format(len(peers)))
+            log.info("Dialogs count: {}".format(len(self.peers)))
 
-        for i in peers:
+        for i in self.peers:
             peer_id = i["id"]
             peer_type = i["type"]
             peer_username = i["username"]
